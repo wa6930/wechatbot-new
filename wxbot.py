@@ -383,7 +383,7 @@ _SENDER_PREFIX_RE = re.compile(r"^(wxid_[^\s:\n]+|gh_[^\s:\n]+|\d{6,}):\n")
 
 
 def status_votes(db, username, since=0, until=0, cap=0):
-    """``{sender_id: [条数, 其中 status==2 的条数]}``。
+    """``{sender_id: [条数, 其中 status 表示自己发的条数]}``。
 
     ``status`` 不在 ``get_messages()`` 的返回里，只能自己开分片读；读不到就回空表，
     调用方退到「只看 XML」这一条证据上。
@@ -391,6 +391,9 @@ def status_votes(db, username, since=0, until=0, cap=0):
     窗口参数是给热路径留的：历史格式化只查被格式化的那批消息的时间跨度
     （``since``/``until``），实时判定只看这个会话最近的 ``cap`` 条 ——
     一个几万条的群全表扫一遍是不能放在收消息的循环里的。
+    
+    微信 4.1.x 早期版本 status==2 表示自己发的，4.1.15+ 改为 status==3。
+    这里同时兼容 2 和 3。
     """
     out = {}
     try:
@@ -414,7 +417,8 @@ def status_votes(db, username, since=0, until=0, cap=0):
                 for sid, st in conn.execute(sql, args):
                     v = out.setdefault(str(sid), [0, 0])
                     v[0] += 1
-                    if st == 2:
+                    # 兼容微信 4.1.x 早期（status==2）和 4.1.15+（status==3）
+                    if st in (2, 3):
                         v[1] += 1
             except Exception as e:
                 wxlog.warning("分片 %s 读 status 失败: %s" % (table, e))
@@ -440,6 +444,9 @@ def classify_senders(rows, own_wxid, votes):
     ② 表情/图片 XML 里的 ``fromusername`` == 本机 wxid。
     整场都没有正向证据才退回 ``== 2``；只要判得出「我」，剩下的 id 一律算对方
     —— 群里十几个成员编号，不该有一个靠 ``== 2`` 混进来。
+    
+    微信 4.1.x 早期版本 status==2 表示自己发的，4.1.15+ 改为 status==3。
+    status_votes() 已同时兼容 2 和 3，这里直接用统计结果。
     """
     win, xml = {}, {}
     for r in rows or []:
@@ -568,10 +575,14 @@ class WxMessage:
             self._chat
             and str(getattr(self._chat, "_wxid", "")).endswith("@chatroom")
         )
-        # self_ids 由调用方按 status/XML 证据判好传进来（一个会话算一次，见
-        # WeChat._make_listen_cb）。real_sender_id 是分片内的短编号，写死 ==2
-        # 在换过分片编号的机器上会把"我"当成"对方"，于是自己回复自己。
-        is_self = str(sender_id) in (self_ids or {"2"})
+        # 微信 4.1.15+ 的 sender_id 无法区分「自己」和「别人」（都是 2 或 3），
+        # 改用 sender_username（发送者 wxid）和本机 wxid 对比。
+        sender_username = row.get("sender_username", "")
+        if sender_username and self_wxid:
+            is_self = (sender_username == self_wxid)
+        else:
+            # 兜底：用旧的 sender_id 判断（兼容老版本微信）
+            is_self = str(sender_id) in (self_ids or {"2"})
         self.attr = "self" if is_self else "friend"
 
         content = _to_text(row.get("content"))
