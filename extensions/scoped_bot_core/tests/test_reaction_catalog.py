@@ -1,12 +1,18 @@
-"""Reviewed-byte binding and fixed public queries, without network or disk IO."""
+"""Reviewed metadata and synthetic cache fixtures, without public network IO."""
 
 import copy
 import hashlib
+import io
+import json
+import tempfile
 import unittest
 from dataclasses import replace
+from pathlib import Path
 from unittest.mock import patch
 
-from scoped_bot_core.media_assets import MediaAsset, MediaBlocked
+from PIL import Image
+
+from scoped_bot_core.media_assets import MediaAsset, MediaAssetCache, MediaBlocked
 from scoped_bot_core.public_search import SearchBlocked
 from scoped_bot_core.reaction_catalog import CuratedReactionSource
 from scoped_bot_core.reaction_policy import REACTION_QUERIES
@@ -43,6 +49,20 @@ def asset(**changes):
         row()["page_url"],
     )
     return replace(value, **changes)
+
+
+def local_row(reaction="happy", **changes):
+    value = {
+        "reaction": reaction,
+        "title": "合成本地开心反应图",
+        "media_json": asset().canonical_json(),
+    }
+    value.update(changes)
+    return value
+
+
+def local_catalog(*items):
+    return {"schema_version": 2, "items": list(items or (local_row(),))}
 
 
 class CuratedReactionTests(unittest.TestCase):
@@ -115,7 +135,7 @@ class CuratedReactionTests(unittest.TestCase):
             [],
             {},
             {"schema_version": True, "items": []},
-            {"schema_version": 2, "items": []},
+            {"schema_version": 3, "items": []},
             {"schema_version": 1, "items": ()},
             {"schema_version": 1, "items": [], "trusted": True},
             {"schema_version": 1, "items": [row()] * 7},
@@ -238,6 +258,140 @@ class CuratedReactionTests(unittest.TestCase):
                 source.accept_asset("开心", value)
         with self.assertRaisesRegex(MediaBlocked, "^curated_reaction_unavailable$"):
             source.accept_asset("谢谢", asset())
+
+    def test_local_catalog_retains_truthful_reviewed_source_and_provider(self):
+        source = CuratedReactionSource.from_dict(local_catalog())
+        page = source.search("开心")
+        self.assertEqual(page.provider, "curated_reactions")
+        self.assertEqual(page.results[0].image_url, asset().source_url)
+        self.assertEqual(page.results[0].page_url, asset().page_url)
+        self.assertIs(source.accept_asset("开心", approved := asset()), approved)
+
+    def test_local_prepare_only_loads_reviewed_canonical_metadata(self):
+        source = CuratedReactionSource.from_dict(local_catalog())
+        approved = asset()
+
+        class Cache:
+            def __init__(self):
+                self.loads = []
+
+            def load(self, encoded, *, deadline):
+                self.loads.append((encoded, deadline))
+                return approved, object()
+
+            def prepare(self, *_args, **_kwargs):
+                raise AssertionError("Local reactions must never fetch")
+
+        cache = Cache()
+        self.assertIs(source.prepare("开心", cache, deadline=25), approved)
+        self.assertEqual(cache.loads, [(approved.canonical_json(), 25)])
+
+    def test_local_missing_or_changed_cache_never_falls_back_to_network(self):
+        source = CuratedReactionSource.from_dict(local_catalog())
+
+        class Cache:
+            def load(self, *_args, **_kwargs):
+                raise MediaBlocked("media_cache_hash_changed")
+
+            def prepare(self, *_args, **_kwargs):
+                raise AssertionError("Missing local asset must stay unavailable")
+
+        with self.assertRaisesRegex(MediaBlocked, "^media_cache_hash_changed$"):
+            source.prepare("开心", Cache(), deadline=25)
+
+    def test_local_mode_binds_complete_canonical_asset_metadata(self):
+        source = CuratedReactionSource.from_dict(local_catalog())
+        for changed in (
+            asset(md5="c" * 32),
+            asset(width=65),
+            asset(byte_length=101),
+        ):
+            with self.subTest(changed=changed), self.assertRaises(MediaBlocked):
+                source.accept_asset("开心", changed)
+
+    def test_local_schema_rejects_noncanonical_or_mixed_source_fields(self):
+        pretty = json.dumps(json.loads(asset().canonical_json()), indent=2)
+        for changed in (
+            local_row(media_json=pretty),
+            local_row(media_json=None),
+            local_row(media_json=asset().canonical_json()[:-1]),
+            local_row(page_url=row()["page_url"]),
+            local_row(path="C:/private/image.png"),
+            row(),
+        ):
+            with self.subTest(changed=changed), self.assertRaises(ValueError):
+                CuratedReactionSource.from_dict(local_catalog(changed))
+        with self.assertRaises(ValueError):
+            CuratedReactionSource.from_dict(local_catalog(local_row(), local_row()))
+        with self.assertRaises(ValueError):
+            CuratedReactionSource.from_dict(local_catalog(local_row("unknown")))
+
+    def test_local_schema_rejects_animation_at_catalog_load(self):
+        changed = asset(
+            asset_name="a" * 64 + ".gif",
+            mime_type="image/gif",
+            image_format="GIF",
+            frames=2,
+        )
+        with self.assertRaises(MediaBlocked):
+            CuratedReactionSource.from_dict(
+                local_catalog(local_row(media_json=changed.canonical_json()))
+            )
+        with self.assertRaises(MediaBlocked):
+            CuratedReactionSource.from_dict(
+                local_catalog(local_row(media_json=asset(frames=2).canonical_json()))
+            )
+
+    def test_local_schema_snapshot_and_empty_catalog_remain_inert(self):
+        value = local_catalog()
+        source = CuratedReactionSource.from_dict(value)
+        value["items"][0]["media_json"] = asset(width=80).canonical_json()
+        value["items"].clear()
+        self.assertEqual(source.accept_asset("开心", asset()), asset())
+        empty = CuratedReactionSource.from_dict({"schema_version": 2, "items": []})
+        with self.assertRaises(MediaBlocked):
+            empty.prepare("开心", object(), deadline=25)
+
+    def test_legacy_prepare_still_prepares_then_binds_the_original_source(self):
+        source = CuratedReactionSource.from_dict(catalog())
+        approved = asset()
+
+        class Cache:
+            def __init__(self):
+                self.candidates = []
+
+            def prepare(self, candidate, *, deadline):
+                self.candidates.append((candidate.image_url, deadline))
+                return approved
+
+        cache = Cache()
+        self.assertIs(source.prepare("开心", cache, deadline=25), approved)
+        self.assertEqual(cache.candidates, [(row()["image_url"], 25)])
+
+    def test_local_prepare_revalidates_real_cache_bytes_without_refetch(self):
+        with tempfile.TemporaryDirectory(prefix="local-reaction-cache-") as temp:
+            encoded = io.BytesIO()
+            Image.new("RGB", (3, 2), (10, 20, 30)).save(encoded, format="PNG")
+            fetches = []
+
+            def fetch(url, **_options):
+                fetches.append(url)
+                return "image/png", encoded.getvalue()
+
+            cache = MediaAssetCache(Path(temp) / "cache", fetch=fetch, clock=lambda: 10)
+            candidate = (
+                CuratedReactionSource.from_dict(catalog()).search("开心").results[0]
+            )
+            approved = cache.prepare(candidate, deadline=25)
+            source = CuratedReactionSource.from_dict(
+                local_catalog(local_row(media_json=approved.canonical_json()))
+            )
+            self.assertEqual(source.prepare("开心", cache, deadline=25), approved)
+            self.assertEqual(len(fetches), 1)
+            (cache.root / approved.asset_name).write_bytes(b"changed-synthetic-bytes")
+            with self.assertRaises(MediaBlocked):
+                source.prepare("开心", cache, deadline=25)
+            self.assertEqual(len(fetches), 1)
 
 
 if __name__ == "__main__":

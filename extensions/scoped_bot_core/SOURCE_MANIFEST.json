@@ -36,7 +36,7 @@
     },
     {
       "file": "scoped_bot_core/media_assets.py",
-      "sha256": "45d910b87e6f1fe9217c679a77b17bf27bc936ef3a1de18cab29cc3cbee96ec2"
+      "sha256": "c8b7a0a3248a9c8a7a94f70e9c9c6ef8bfb15c594940fc9a7b9ef59cad7cbb5b"
     },
     {
       "file": "scoped_bot_core/reply_policy.py",
@@ -56,7 +56,7 @@
     },
     {
       "file": "scoped_bot_core/reaction_catalog.py",
-      "sha256": "4349462f5df9a0c25cb6012b17f26542b2e32e8e2857a4bec0727be33e18279f"
+      "sha256": "e419ad4be588aedb6ea3126cc0110faa0a68637bd7e9454c3409e574e94af18b"
     }
   ]
 }

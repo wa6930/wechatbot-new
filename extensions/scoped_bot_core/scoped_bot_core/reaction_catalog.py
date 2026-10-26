@@ -1,9 +1,10 @@
-"""Inert catalog of owner-reviewed reaction images; no search or file IO.
+"""Inert catalog of reviewed reactions; no independent network or file IO.
 
 Only fixed public mood words resolve to reviewed candidates. The trusted caller
-loads the catalog and separately prepares/decodes actual image bytes. Approval
-here binds those bytes' resulting metadata to the reviewed SHA256 and source;
-it does not infer semantic safety from a title or permit chat to add entries.
+loads the catalog and supplies its bounded image cache. Local schema-2 entries
+load and verify already imported bytes; they never fall back to a download.
+Approval binds metadata to the reviewed SHA256 and truthful source. It does not
+infer semantic safety from a title or permit chat to add entries.
 """
 
 from __future__ import annotations
@@ -35,6 +36,7 @@ class _ApprovedImage:
     page_url: str
     image_url: str
     sha256: str
+    media_json: str | None = None
 
 
 def _title(value):
@@ -63,39 +65,60 @@ class CuratedReactionSource:
     The approval file is not a declaration that an image is licensed for reuse.
     """
 
-    __slots__ = ("_by_query",)
+    __slots__ = ("_by_query", "_schema_version")
 
     def __init__(self, value):
         if (
             type(value) is not dict
             or set(value) != {"schema_version", "items"}
             or type(value["schema_version"]) is not int
-            or value["schema_version"] != 1
+            or value["schema_version"] not in {1, 2}
             or type(value["items"]) is not list
             or len(value["items"]) > MAX_REACTIONS
         ):
             raise ValueError("curated_reaction_catalog_rejected")
+        schema_version = value["schema_version"]
         by_query = {}
         for row in value["items"]:
             if (
                 type(row) is not dict
-                or set(row) != {"reaction", "title", "page_url", "image_url", "sha256"}
+                or set(row)
+                != (
+                    {"reaction", "title", "media_json"}
+                    if schema_version == 2
+                    else {"reaction", "title", "page_url", "image_url", "sha256"}
+                )
                 or not isinstance(row["reaction"], str)
                 or row["reaction"] not in REACTION_QUERIES
-                or not isinstance(row["sha256"], str)
-                or not re.fullmatch(r"[0-9a-f]{64}", row["sha256"])
             ):
                 raise ValueError("curated_reaction_item_rejected")
             query = REACTION_QUERIES[row["reaction"]]
             if query in by_query:
                 raise ValueError("curated_reaction_duplicate")
-            by_query[query] = _ApprovedImage(
-                _title(row["title"]),
-                validate_page_url(row["page_url"]),
-                validate_asset_url(row["image_url"]),
-                row["sha256"],
-            )
+            if schema_version == 2:
+                asset = MediaAsset.from_json(row["media_json"])
+                if asset.frames != 1 or asset.image_format not in {"PNG", "JPEG"}:
+                    raise MediaBlocked("curated_reaction_asset_rejected")
+                by_query[query] = _ApprovedImage(
+                    _title(row["title"]),
+                    asset.page_url,
+                    asset.source_url,
+                    asset.sha256,
+                    asset.canonical_json(),
+                )
+            else:
+                if not isinstance(row["sha256"], str) or not re.fullmatch(
+                    r"[0-9a-f]{64}", row["sha256"]
+                ):
+                    raise ValueError("curated_reaction_item_rejected")
+                by_query[query] = _ApprovedImage(
+                    _title(row["title"]),
+                    validate_page_url(row["page_url"]),
+                    validate_asset_url(row["image_url"]),
+                    row["sha256"],
+                )
         self._by_query = MappingProxyType(by_query)
+        self._schema_version = schema_version
 
     @classmethod
     def from_dict(cls, value):
@@ -111,11 +134,24 @@ class CuratedReactionSource:
             raise SearchBlocked("curated_reaction_kind_rejected")
         item = self._approved(query, SearchBlocked)
         return PublicSearchPage(
-            "fabiaoqing_html",
+            "curated_reactions" if self._schema_version == 2 else "fabiaoqing_html",
             hashlib.sha256(query.encode("utf-8")).hexdigest(),
             (PublicResult(item.title, item.page_url, image_url=item.image_url),),
             time.time(),
         )
+
+    def prepare(self, query, cache, *, deadline):
+        """Use the supplied cache; local entries never download on a cache miss.
+
+        The cache owns all path, byte, image and deadline checks. This class
+        returns no file path and never trusts model-supplied media metadata.
+        """
+        item = self._approved(query, MediaBlocked)
+        if item.media_json is not None:
+            asset, _ = cache.load(item.media_json, deadline=deadline)
+        else:
+            asset = cache.prepare(self.search(query).results[0], deadline=deadline)
+        return self.accept_asset(query, asset)
 
     def accept_asset(self, query, asset):
         item = self._approved(query, MediaBlocked)
@@ -128,6 +164,10 @@ class CuratedReactionSource:
             or asset.page_url != item.page_url
             or asset.frames != 1
             or asset.image_format not in {"PNG", "JPEG"}
+            or (
+                item.media_json is not None
+                and asset.canonical_json() != item.media_json
+            )
         ):
             raise MediaBlocked("curated_reaction_asset_rejected")
         return asset

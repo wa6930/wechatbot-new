@@ -85,14 +85,18 @@ def validate_asset_url(value):
             isinstance(value, str)
             and len(value) <= 512
             and parts.scheme == "https"
-            and parts.netloc == "img.soutula.com"
+            and (
+                parts.netloc == "img.soutula.com"
+                and re.fullmatch(
+                    r"/bmiddle/[A-Za-z0-9_-]+\.(?:jpg|jpeg|png|gif|webp)",
+                    parts.path,
+                    re.I,
+                )
+                or parts.netloc == "kiriyuki.com"
+                and re.fullmatch(r"/media/drag/thumb/[0-9a-f]{64}\.png", parts.path)
+            )
             and not parts.query
             and not parts.fragment
-            and re.fullmatch(
-                r"/bmiddle/[A-Za-z0-9_-]+\.(?:jpg|jpeg|png|gif|webp)",
-                parts.path,
-                re.I,
-            )
         )
     except (ValueError, TypeError, AttributeError):
         valid = False
@@ -102,8 +106,11 @@ def validate_asset_url(value):
 
 
 def validate_page_url(value):
-    if not isinstance(value, str) or not re.fullmatch(
-        r"https://www\.fabiaoqing\.com/biaoqing/detail/id/[0-9]+\.html", value
+    if not isinstance(value, str) or not (
+        re.fullmatch(
+            r"https://www\.fabiaoqing\.com/biaoqing/detail/id/[0-9]+\.html", value
+        )
+        or value == "https://kiriyuki.com/showcase?p=%E5%A4%A7%E8%82%A5%E9%B1%BC"
     ):
         raise MediaBlocked("media_source_page_rejected")
     return value
@@ -233,6 +240,8 @@ class _NoRedirect(HTTPRedirectHandler):
 def fetch_image_bytes(url, *, timeout=FETCH_SECONDS):
     """One direct credentialless GET, no host settings or shell interpolation."""
     validate_asset_url(url)
+    if urlsplit(url).netloc == "kiriyuki.com":
+        raise MediaBlocked("media_requires_reviewed_local_import")
     if type(timeout) not in (int, float) or not 0 < timeout <= FETCH_SECONDS:
         raise MediaBlocked("media_timeout_rejected")
     if os.name == "nt":
@@ -328,6 +337,10 @@ class MediaAssetCache:
             validate_asset_url(candidate.image_url),
             validate_page_url(candidate.page_url),
         )
+        if urlsplit(source).netloc == "kiriyuki.com":
+            # Provenance permission is not permission for runtime HTTP fetch.
+            # Authored assets enter only through the reviewed local import.
+            raise MediaBlocked("media_requires_reviewed_local_import")
         mime, raw = self.fetch(
             source, timeout=min(FETCH_SECONDS, deadline - self.clock())
         )
