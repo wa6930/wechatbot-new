@@ -49,6 +49,14 @@
     {
       "file": "scoped_bot_core/live_selftest.py",
       "sha256": "8218e0f8ad1366173a8fd2749a311b1f614eaca5a44f86cb89023de5ae5ff0a5"
+    },
+    {
+      "file": "scoped_bot_core/reaction_policy.py",
+      "sha256": "24af5bd759cd74621a8884698b993fc575656ee151c1ffc34d9aa69b7d775c8e"
+    },
+    {
+      "file": "scoped_bot_core/reaction_catalog.py",
+      "sha256": "4349462f5df9a0c25cb6012b17f26542b2e32e8e2857a4bec0727be33e18279f"
     }
   ]
 }
