@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.ruff_cache/
+.runtime/
+*.sqlite3*
+*.dpapi
+*.clixml
+*.log

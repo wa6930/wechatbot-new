@@ -1,0 +1,54 @@
+{
+  "snapshot_date": "2026-10-26",
+  "scope": "pure reusable components only, no live scripts or owner persona",
+  "modules": [
+    {
+      "file": "scoped_bot_core/__init__.py",
+      "sha256": "05fadaa770796ef5f46e2b25bfe677a4e3a716f4f84bc2f2241d4ab998dd4e76"
+    },
+    {
+      "file": "scoped_bot_core/storage.py",
+      "sha256": "caeafd4570dbbc07b6c6e6096c3f136978e542d3fe773303f9bd5145c1778f31"
+    },
+    {
+      "file": "scoped_bot_core/delivery.py",
+      "sha256": "695d7110f9bab117079e38e9ff3ea6b38d82f76487b4c5d3ce9b3b752f351fd4"
+    },
+    {
+      "file": "scoped_bot_core/context_budget.py",
+      "sha256": "7394aa27632b4030db86b3e360b27cae5b62bf91827f8988dc241aae65f70147"
+    },
+    {
+      "file": "scoped_bot_core/persona_memory.py",
+      "sha256": "11263a2be52c7445620c45db6650c1153a3160863dc19f2f7d515a3f4c2c6e6c"
+    },
+    {
+      "file": "scoped_bot_core/persona_backup.py",
+      "sha256": "2e3ba0723becf4ea4fa94c2273d56b3d63fd528ca3b2bdcc2ee617b3035b12fc"
+    },
+    {
+      "file": "scoped_bot_core/public_search.py",
+      "sha256": "81b77ac143568d721b743fa6a1bd8ccb1a9d2ec39049a4697b67cf176b37b2ba"
+    },
+    {
+      "file": "scoped_bot_core/search_actions.py",
+      "sha256": "72e4a773cdb3bfa0b656598bb99d8de50e1c8d99219229bc7431252b018bddea"
+    },
+    {
+      "file": "scoped_bot_core/media_assets.py",
+      "sha256": "45d910b87e6f1fe9217c679a77b17bf27bc936ef3a1de18cab29cc3cbee96ec2"
+    },
+    {
+      "file": "scoped_bot_core/reply_policy.py",
+      "sha256": "7b42544ef22f0d9fa3580cc43fd05230fdd1f0d7799fdfc57775c1b8a475844f"
+    },
+    {
+      "file": "scoped_bot_core/conversation_support.py",
+      "sha256": "64b22722bae2d29b8a7f78031c7205578c0c8a14c9414a81ed1ff2fb4f561f05"
+    },
+    {
+      "file": "scoped_bot_core/live_selftest.py",
+      "sha256": "8218e0f8ad1366173a8fd2749a311b1f614eaca5a44f86cb89023de5ae5ff0a5"
+    }
+  ]
+}
