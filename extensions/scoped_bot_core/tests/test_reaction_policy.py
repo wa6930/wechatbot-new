@@ -252,7 +252,22 @@ class ReactionPolicyTests(unittest.TestCase):
             )
         )
         self.assertFalse(
-            reaction_eligible("哈哈哈", ReactionProposal("现在感觉如何？", "laugh"))
+            reaction_eligible(
+                "哈哈哈", ReactionProposal("报错时具体出现了什么？", "laugh")
+            )
+        )
+
+    def test_optional_playful_followup_does_not_veto_a_social_reaction(self):
+        self.assertTrue(
+            reaction_eligible(
+                "哈哈哈，太好笑了！", ReactionProposal("什么这么好笑？", "laugh")
+            )
+        )
+        self.assertFalse(
+            reaction_eligible(
+                "哈哈哈，但我到底该怎么办？",
+                ReactionProposal("什么这么好笑？", "laugh"),
+            )
         )
 
     def test_eligibility_bounds_and_no_model_choice_default_to_text(self):

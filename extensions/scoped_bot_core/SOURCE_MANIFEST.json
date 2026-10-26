@@ -52,7 +52,7 @@
     },
     {
       "file": "scoped_bot_core/reaction_policy.py",
-      "sha256": "24af5bd759cd74621a8884698b993fc575656ee151c1ffc34d9aa69b7d775c8e"
+      "sha256": "1af116322b3712491c9b324013000315cf31cf9cb35cdc1a1c71590d98f2ef23"
     },
     {
       "file": "scoped_bot_core/reaction_catalog.py",
